@@ -1,3 +1,4 @@
+```python
 import os
 
 from fastapi import FastAPI, Request
@@ -9,7 +10,10 @@ from sqlalchemy.exc import IntegrityError
 from database import engine
 
 
-# Routers
+# ============================================================
+# ROUTERS
+# ============================================================
+
 from routers.roles import router as roles_router
 from routers.usuarios import router as usuarios_router
 from routers.acudientes import router as acudientes_router
@@ -22,15 +26,42 @@ from routers.estudiante_ruta import router as estudiante_ruta_router
 from routers.registros_abordaje import router as registros_abordaje_router
 
 
+# ============================================================
+# CREACIÓN DE LA API
+# ============================================================
+
 app = FastAPI(
     title="Gestión de Rutas y Transporte Escolar",
     description="API para la gestión del transporte escolar",
     version="1.0.0"
 )
 
-allowed_origins = [origin.strip() for origin in os.getenv(
-    "CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
-).split(",") if origin.strip()]
+
+# ============================================================
+# CONFIGURACIÓN CORS
+# ============================================================
+
+# Permite configurar los orígenes desde Render mediante
+# la variable de entorno CORS_ORIGINS.
+#
+# Ejemplo en Render:
+#
+# CORS_ORIGINS=https://fanciful-duckanoo-fc5130.netlify.app
+#
+# También se mantienen los orígenes utilizados durante
+# el desarrollo local.
+
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:5173,"
+        "http://127.0.0.1:5173,"
+        "https://fanciful-duckanoo-fc5130.netlify.app"
+    ).split(",")
+    if origin.strip()
+]
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -41,18 +72,35 @@ app.add_middleware(
 )
 
 
+# ============================================================
+# MANEJO DE ERRORES DE INTEGRIDAD
+# ============================================================
+
 @app.exception_handler(IntegrityError)
-async def manejar_error_integridad(request: Request, exc: IntegrityError):
-    """Devuelve un conflicto legible al violar claves únicas o foráneas."""
+async def manejar_error_integridad(
+    request: Request,
+    exc: IntegrityError
+):
+    """
+    Devuelve un conflicto legible cuando se viola
+    una restricción de integridad de la base de datos,
+    por ejemplo una clave única o una clave foránea.
+    """
+
     return JSONResponse(
         status_code=409,
-        content={"detail": "No se pudo guardar el registro: ya existe o referencia datos inexistentes."},
+        content={
+            "detail": (
+                "No se pudo guardar el registro: "
+                "ya existe o referencia datos inexistentes."
+            )
+        },
     )
 
 
-# =========================
+# ============================================================
 # REGISTRO DE ROUTERS
-# =========================
+# ============================================================
 
 app.include_router(roles_router)
 app.include_router(usuarios_router)
@@ -66,9 +114,9 @@ app.include_router(estudiante_ruta_router)
 app.include_router(registros_abordaje_router)
 
 
-# =========================
+# ============================================================
 # RUTA PRINCIPAL
-# =========================
+# ============================================================
 
 @app.get("/")
 def inicio():
@@ -77,26 +125,41 @@ def inicio():
     }
 
 
-# =========================
+# ============================================================
 # ESTADO DEL SERVICIO
-# =========================
+# ============================================================
 
 @app.get("/health")
 def health_check():
-    """Endpoint liviano para comprobar que Render levantó la API."""
-    return {"status": "ok"}
+    """
+    Endpoint liviano para comprobar que Render
+    levantó correctamente la API.
+    """
+
+    return {
+        "status": "ok"
+    }
 
 
-# =========================
-# PRUEBA DE BASE DE DATOS
-# =========================
+# ============================================================
+# PRUEBA DE CONEXIÓN CON LA BASE DE DATOS
+# ============================================================
 
 @app.get("/prueba-db")
 def prueba_db():
+    """
+    Comprueba que la API puede conectarse
+    correctamente a Supabase/PostgreSQL.
+    """
+
     with engine.connect() as connection:
-        resultado = connection.execute(text("SELECT 1"))
+
+        resultado = connection.execute(
+            text("SELECT 1")
+        )
 
         return {
             "mensaje": "Conexion con Supabase exitosa",
             "resultado": resultado.scalar()
         }
+```
