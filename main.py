@@ -162,4 +162,4 @@ def prueba_db():
             "mensaje": "Conexion con Supabase exitosa",
             "resultado": resultado.scalar()
         }
-```
+
