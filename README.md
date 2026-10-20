@@ -1,47 +1,52 @@
-# Gestión de Transporte Escolar
+# Gestión de Transporte Escolar (RutaEscolar)
 
-Proyecto con API FastAPI y frontend independiente en Svelte + Vite. El frontend no usa SvelteKit.
+API FastAPI + frontend Svelte (Vite) + PostgreSQL. Roles: Administrador, Conductor, Acudiente, Estudiante.
 
 ```text
 gestion-transporte-api/
-├── routers/            # Endpoints de la API
-├── main.py             # Aplicación FastAPI
-├── database.py         # Conexión SQLAlchemy
-├── requirements.txt    # Dependencias Python
-├── render.yaml         # Despliegue de la API en Render
-└── frontend/           # Cliente Svelte + Vite
-    ├── src/
-    ├── index.html
-    └── package.json
+├── routers/         # un archivo por entidad (misma estructura de la clase 1)
+├── models.py        # tablas (todas con creado, actualizado y estado)
+├── schemas.py       # validación y respuestas
+├── auth.py          # JWT + permisos leídos de roles_modulos
+├── scope.py         # qué datos ve cada rol
+├── utils.py         # ayudas compartidas (baja lógica, etc.)
+├── seed.py          # roles, módulos, permisos y datos de ejemplo
+├── main.py
+└── frontend/        # Svelte: components/ (componentes reutilizables), lib/
 ```
+
+## Lo nuevo (indicaciones del profesor)
+
+- **Tablas `modulos` y `roles_modulos`**: el menú de cada rol y sus permisos (crear/editar/eliminar) salen de la base de datos.
+- **`creado`, `actualizado` y `estado` en TODAS las tablas.** Eliminar = `estado = 'Inactivo'` (no se borra la fila).
+- **Login con JWT** y selector de rol (`POST /auth/login`).
+- **Conductor**: reporta *fallas del vehículo* (`/fallas-vehiculo`) y ve las *ausencias* avisadas por los acudientes.
+- **Acudiente**: reporta *ausencias* de sus hijos y ve abordajes y alertas de vehículos de sus rutas.
+- Cambios de nombre: `vehiculos.estado` → `disponibilidad`; `conductores.activo` y `rutas.estado` → `estado` común.
+
+### Funcionamiento entre roles
+1. Conductor registra un abordaje → acudiente y estudiante lo ven.
+2. Acudiente/estudiante reporta ausencia → el conductor la ve y la marca "Vista por conductor" → el acudiente ve el cambio.
+3. Conductor reporta una falla → el administrador la pone "En revisión" (el vehículo pasa a *Mantenimiento*) o "Resuelta" → acudientes y estudiantes de esa ruta ven la alerta.
 
 ## Desarrollo local
 
-1. Copia `.env.example` a `.env` y configura `DATABASE_URL`.
-2. Instala y ejecuta la API:
+```powershell
+py -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+copy .env.example .env        # y configura DATABASE_URL y JWT_SECRET
+python seed.py --reset        # crea tablas y carga datos (BORRA las tablas del proyecto)
+uvicorn main:app --reload
+```
 
-   ```powershell
-   py -m venv venv
-   .\venv\Scripts\Activate.ps1
-   pip install -r requirements.txt
-   uvicorn main:app --reload
-   ```
+Frontend: `cd frontend`, copia `.env.example` a `.env`, `npm install`, `npm run dev`.
 
-3. En otra terminal, entra a `frontend`, copia `.env.example` a `.env`, ejecuta `npm install` y después `npm run dev`.
+Cuentas de prueba (el login pide también el rol): `admin@rutaescolar.co / Admin2026*`;
+los demás usuarios usan `Ruta2026*` (el seed imprime un correo de ejemplo por rol).
 
-La API está en `http://localhost:8000`, su documentación en `/docs` y el estado del servicio en `/health`.
+## Nube
 
-## Despliegue
-
-1. Crea un repositorio en GitHub desde esta carpeta y sube todos los archivos salvo los ignorados.
-2. En Render crea un **Blueprint** desde el repositorio. Detectará `render.yaml` y usará `uvicorn main:app --host 0.0.0.0 --port $PORT`.
-3. En Render define `DATABASE_URL` y `CORS_ORIGINS`. En `CORS_ORIGINS` incluye la URL final del frontend, sin barra al final.
-4. Cuando Render publique la API, usa su URL en `frontend/.env`:
-
-   ```env
-   VITE_API_URL=https://tu-api.onrender.com
-   ```
-
-5. Ejecuta `npm run build` dentro de `frontend` y publica la carpeta `frontend/dist` en el hosting estático elegido.
-
-Los secretos, entornos virtuales, dependencias y compilados están excluidos en `.gitignore`.
+1. `python seed.py --reset` apuntando al `DATABASE_URL` de la base en la nube (Supabase/Postgres).
+2. Render: variables `DATABASE_URL`, `CORS_ORIGINS` (URL del frontend, sin barra final) y `JWT_SECRET`.
+3. Frontend: `VITE_API_URL=https://tu-api.onrender.com`, `npm run build` y publica `frontend/dist`.

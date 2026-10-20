@@ -1,126 +1,61 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from auth import permiso
 from database import get_db
 from models import Paradero
 from schemas import ParaderoCreate, ParaderoResponse
+from utils import aplicar, baja_logica, datos, obtener_o_404, solo_activos
 
 
-router = APIRouter(
-    prefix="/paraderos",
-    tags=["Paraderos"]
-)
+router = APIRouter(prefix="/paraderos", tags=["Paraderos"])
+CLAVE = "paraderos"
+NOMBRE = "Paradero"
 
-
-# =========================
-# OBTENER TODOS
-# =========================
 
 @router.get("/", response_model=list[ParaderoResponse])
-def obtener_paraderos(db: Session = Depends(get_db)):
-    return db.query(Paradero).all()
-
-
-# =========================
-# OBTENER UNO
-# =========================
-
-@router.get("/{paradero_id}", response_model=ParaderoResponse)
-def obtener_paradero(
-    paradero_id: int,
-    db: Session = Depends(get_db)
+def obtener_todos(
+    incluir_inactivos: bool = False,
+    db: Session = Depends(get_db),
+    _=Depends(permiso(CLAVE)),
 ):
-    paradero = db.query(Paradero).filter(
-        Paradero.id == paradero_id
-    ).first()
-
-    if not paradero:
-        raise HTTPException(
-            status_code=404,
-            detail="Paradero no encontrado"
-        )
-
-    return paradero
+    consulta = solo_activos(db.query(Paradero), Paradero, incluir_inactivos)
+    return consulta.order_by(Paradero.id).all()
 
 
-# =========================
-# CREAR
-# =========================
+@router.get("/{id}", response_model=ParaderoResponse)
+def obtener_uno(id: int, db: Session = Depends(get_db), _=Depends(permiso(CLAVE))):
+    return obtener_o_404(db, Paradero, id, NOMBRE)
+
 
 @router.post("/", response_model=ParaderoResponse)
-def crear_paradero(
-    paradero: ParaderoCreate,
-    db: Session = Depends(get_db)
+def crear(
+    cuerpo: ParaderoCreate,
+    db: Session = Depends(get_db),
+    _=Depends(permiso(CLAVE, "crear")),
 ):
-    nuevo_paradero = Paradero(
-        nombre=paradero.nombre,
-        direccion=paradero.direccion,
-        referencia=paradero.referencia,
-        latitud=paradero.latitud,
-        longitud=paradero.longitud
-    )
-
-    db.add(nuevo_paradero)
+    nuevo = Paradero(**datos(cuerpo))
+    db.add(nuevo)
     db.commit()
-    db.refresh(nuevo_paradero)
+    db.refresh(nuevo)
+    return nuevo
 
-    return nuevo_paradero
 
-
-# =========================
-# ACTUALIZAR
-# =========================
-
-@router.put("/{paradero_id}", response_model=ParaderoResponse)
-def actualizar_paradero(
-    paradero_id: int,
-    paradero: ParaderoCreate,
-    db: Session = Depends(get_db)
+@router.put("/{id}", response_model=ParaderoResponse)
+def actualizar(
+    id: int,
+    cuerpo: ParaderoCreate,
+    db: Session = Depends(get_db),
+    _=Depends(permiso(CLAVE, "editar")),
 ):
-    paradero_db = db.query(Paradero).filter(
-        Paradero.id == paradero_id
-    ).first()
-
-    if not paradero_db:
-        raise HTTPException(
-            status_code=404,
-            detail="Paradero no encontrado"
-        )
-
-    paradero_db.nombre = paradero.nombre
-    paradero_db.direccion = paradero.direccion
-    paradero_db.referencia = paradero.referencia
-    paradero_db.latitud = paradero.latitud
-    paradero_db.longitud = paradero.longitud
-
+    obj = obtener_o_404(db, Paradero, id, NOMBRE)
+    aplicar(obj, cuerpo.model_dump())
     db.commit()
-    db.refresh(paradero_db)
+    db.refresh(obj)
+    return obj
 
-    return paradero_db
 
-
-# =========================
-# ELIMINAR
-# =========================
-
-@router.delete("/{paradero_id}")
-def eliminar_paradero(
-    paradero_id: int,
-    db: Session = Depends(get_db)
-):
-    paradero = db.query(Paradero).filter(
-        Paradero.id == paradero_id
-    ).first()
-
-    if not paradero:
-        raise HTTPException(
-            status_code=404,
-            detail="Paradero no encontrado"
-        )
-
-    db.delete(paradero)
-    db.commit()
-
-    return {
-        "mensaje": "Paradero eliminado correctamente"
-    }
+@router.delete("/{id}")
+def eliminar(id: int, db: Session = Depends(get_db), _=Depends(permiso(CLAVE, "eliminar"))):
+    obj = obtener_o_404(db, Paradero, id, NOMBRE)
+    return baja_logica(db, obj, NOMBRE)

@@ -1,61 +1,61 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from auth import permiso
 from database import get_db
 from models import Rol
 from schemas import RolCreate, RolResponse
+from utils import aplicar, baja_logica, datos, obtener_o_404, solo_activos
 
 
-router = APIRouter(
-    prefix="/roles",
-    tags=["Roles"]
-)
+router = APIRouter(prefix="/roles", tags=["Roles"])
+CLAVE = "roles"
+NOMBRE = "Rol"
 
 
 @router.get("/", response_model=list[RolResponse])
-def obtener_roles(db: Session = Depends(get_db)):
-    return db.query(Rol).all()
+def obtener_todos(
+    incluir_inactivos: bool = False,
+    db: Session = Depends(get_db),
+    _=Depends(permiso(CLAVE)),
+):
+    consulta = solo_activos(db.query(Rol), Rol, incluir_inactivos)
+    return consulta.order_by(Rol.id).all()
 
 
-@router.get("/{rol_id}", response_model=RolResponse)
-def obtener_rol(rol_id: int, db: Session = Depends(get_db)):
-    rol = db.query(Rol).filter(Rol.id == rol_id).first()
-    if not rol:
-        raise HTTPException(status_code=404, detail="Rol no encontrado")
-    return rol
+@router.get("/{id}", response_model=RolResponse)
+def obtener_uno(id: int, db: Session = Depends(get_db), _=Depends(permiso(CLAVE))):
+    return obtener_o_404(db, Rol, id, NOMBRE)
 
 
 @router.post("/", response_model=RolResponse)
-def crear_rol(rol: RolCreate, db: Session = Depends(get_db)):
-    nuevo_rol = Rol(
-        nombre=rol.nombre,
-        descripcion=rol.descripcion
-    )
-
-    db.add(nuevo_rol)
+def crear(
+    cuerpo: RolCreate,
+    db: Session = Depends(get_db),
+    _=Depends(permiso(CLAVE, "crear")),
+):
+    nuevo = Rol(**datos(cuerpo))
+    db.add(nuevo)
     db.commit()
-    db.refresh(nuevo_rol)
+    db.refresh(nuevo)
+    return nuevo
 
-    return nuevo_rol
 
-
-@router.put("/{rol_id}", response_model=RolResponse)
-def actualizar_rol(rol_id: int, datos: RolCreate, db: Session = Depends(get_db)):
-    rol = db.query(Rol).filter(Rol.id == rol_id).first()
-    if not rol:
-        raise HTTPException(status_code=404, detail="Rol no encontrado")
-    rol.nombre = datos.nombre
-    rol.descripcion = datos.descripcion
+@router.put("/{id}", response_model=RolResponse)
+def actualizar(
+    id: int,
+    cuerpo: RolCreate,
+    db: Session = Depends(get_db),
+    _=Depends(permiso(CLAVE, "editar")),
+):
+    obj = obtener_o_404(db, Rol, id, NOMBRE)
+    aplicar(obj, cuerpo.model_dump())
     db.commit()
-    db.refresh(rol)
-    return rol
+    db.refresh(obj)
+    return obj
 
 
-@router.delete("/{rol_id}")
-def eliminar_rol(rol_id: int, db: Session = Depends(get_db)):
-    rol = db.query(Rol).filter(Rol.id == rol_id).first()
-    if not rol:
-        raise HTTPException(status_code=404, detail="Rol no encontrado")
-    db.delete(rol)
-    db.commit()
-    return {"mensaje": "Rol eliminado correctamente"}
+@router.delete("/{id}")
+def eliminar(id: int, db: Session = Depends(get_db), _=Depends(permiso(CLAVE, "eliminar"))):
+    obj = obtener_o_404(db, Rol, id, NOMBRE)
+    return baja_logica(db, obj, NOMBRE)

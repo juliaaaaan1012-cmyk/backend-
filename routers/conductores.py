@@ -1,128 +1,61 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from auth import permiso
 from database import get_db
 from models import Conductor
 from schemas import ConductorCreate, ConductorResponse
+from utils import aplicar, baja_logica, datos, obtener_o_404, solo_activos
 
 
-router = APIRouter(
-    prefix="/conductores",
-    tags=["Conductores"]
-)
+router = APIRouter(prefix="/conductores", tags=["Conductores"])
+CLAVE = "conductores"
+NOMBRE = "Conductor"
 
-
-# =========================
-# OBTENER TODOS
-# =========================
 
 @router.get("/", response_model=list[ConductorResponse])
-def obtener_conductores(db: Session = Depends(get_db)):
-    return db.query(Conductor).all()
-
-
-# =========================
-# OBTENER UNO
-# =========================
-
-@router.get("/{conductor_id}", response_model=ConductorResponse)
-def obtener_conductor(
-    conductor_id: int,
-    db: Session = Depends(get_db)
+def obtener_todos(
+    incluir_inactivos: bool = False,
+    db: Session = Depends(get_db),
+    _=Depends(permiso(CLAVE)),
 ):
-    conductor = db.query(Conductor).filter(
-        Conductor.id == conductor_id
-    ).first()
-
-    if not conductor:
-        raise HTTPException(
-            status_code=404,
-            detail="Conductor no encontrado"
-        )
-
-    return conductor
+    consulta = solo_activos(db.query(Conductor), Conductor, incluir_inactivos)
+    return consulta.order_by(Conductor.id).all()
 
 
-# =========================
-# CREAR
-# =========================
+@router.get("/{id}", response_model=ConductorResponse)
+def obtener_uno(id: int, db: Session = Depends(get_db), _=Depends(permiso(CLAVE))):
+    return obtener_o_404(db, Conductor, id, NOMBRE)
+
 
 @router.post("/", response_model=ConductorResponse)
-def crear_conductor(
-    conductor: ConductorCreate,
-    db: Session = Depends(get_db)
+def crear(
+    cuerpo: ConductorCreate,
+    db: Session = Depends(get_db),
+    _=Depends(permiso(CLAVE, "crear")),
 ):
-    nuevo_conductor = Conductor(
-        nombre=conductor.nombre,
-        apellido=conductor.apellido,
-        documento=conductor.documento,
-        licencia=conductor.licencia,
-        telefono=conductor.telefono,
-        activo=conductor.activo
-    )
-
-    db.add(nuevo_conductor)
+    nuevo = Conductor(**datos(cuerpo))
+    db.add(nuevo)
     db.commit()
-    db.refresh(nuevo_conductor)
+    db.refresh(nuevo)
+    return nuevo
 
-    return nuevo_conductor
 
-
-# =========================
-# ACTUALIZAR
-# =========================
-
-@router.put("/{conductor_id}", response_model=ConductorResponse)
-def actualizar_conductor(
-    conductor_id: int,
-    conductor: ConductorCreate,
-    db: Session = Depends(get_db)
+@router.put("/{id}", response_model=ConductorResponse)
+def actualizar(
+    id: int,
+    cuerpo: ConductorCreate,
+    db: Session = Depends(get_db),
+    _=Depends(permiso(CLAVE, "editar")),
 ):
-    conductor_db = db.query(Conductor).filter(
-        Conductor.id == conductor_id
-    ).first()
-
-    if not conductor_db:
-        raise HTTPException(
-            status_code=404,
-            detail="Conductor no encontrado"
-        )
-
-    conductor_db.nombre = conductor.nombre
-    conductor_db.apellido = conductor.apellido
-    conductor_db.documento = conductor.documento
-    conductor_db.licencia = conductor.licencia
-    conductor_db.telefono = conductor.telefono
-    conductor_db.activo = conductor.activo
-
+    obj = obtener_o_404(db, Conductor, id, NOMBRE)
+    aplicar(obj, cuerpo.model_dump())
     db.commit()
-    db.refresh(conductor_db)
+    db.refresh(obj)
+    return obj
 
-    return conductor_db
 
-
-# =========================
-# ELIMINAR
-# =========================
-
-@router.delete("/{conductor_id}")
-def eliminar_conductor(
-    conductor_id: int,
-    db: Session = Depends(get_db)
-):
-    conductor = db.query(Conductor).filter(
-        Conductor.id == conductor_id
-    ).first()
-
-    if not conductor:
-        raise HTTPException(
-            status_code=404,
-            detail="Conductor no encontrado"
-        )
-
-    db.delete(conductor)
-    db.commit()
-
-    return {
-        "mensaje": "Conductor eliminado correctamente"
-    }
+@router.delete("/{id}")
+def eliminar(id: int, db: Session = Depends(get_db), _=Depends(permiso(CLAVE, "eliminar"))):
+    obj = obtener_o_404(db, Conductor, id, NOMBRE)
+    return baja_logica(db, obj, NOMBRE)

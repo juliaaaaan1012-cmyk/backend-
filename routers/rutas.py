@@ -1,130 +1,63 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from auth import permiso
 from database import get_db
 from models import Ruta
 from schemas import RutaCreate, RutaResponse
+from scope import ids_rutas
+from utils import aplicar, baja_logica, datos, obtener_o_404, solo_activos
 
+router = APIRouter(prefix="/rutas", tags=["Rutas"])
+CLAVE = "rutas"
+NOMBRE = "Ruta"
 
-router = APIRouter(
-    prefix="/rutas",
-    tags=["Rutas"]
-)
-
-
-# =========================
-# OBTENER TODAS LAS RUTAS
-# =========================
 
 @router.get("/", response_model=list[RutaResponse])
-def obtener_rutas(db: Session = Depends(get_db)):
-    return db.query(Ruta).all()
-
-
-# =========================
-# OBTENER UNA RUTA
-# =========================
-
-@router.get("/{ruta_id}", response_model=RutaResponse)
-def obtener_ruta(
-    ruta_id: int,
-    db: Session = Depends(get_db)
+def obtener_rutas(
+    incluir_inactivos: bool = False,
+    db: Session = Depends(get_db),
+    usuario=Depends(permiso(CLAVE)),
 ):
-    ruta = db.query(Ruta).filter(
-        Ruta.id == ruta_id
-    ).first()
-
-    if not ruta:
-        raise HTTPException(
-            status_code=404,
-            detail="Ruta no encontrada"
-        )
-
-    return ruta
+    q = solo_activos(db.query(Ruta), Ruta, incluir_inactivos)
+    ids = ids_rutas(db, usuario)
+    if ids is not None:
+        q = q.filter(Ruta.id.in_(ids or [-1]))
+    return q.order_by(Ruta.id).all()
 
 
-# =========================
-# CREAR RUTA
-# =========================
+@router.get("/{id}", response_model=RutaResponse)
+def obtener_ruta(id: int, db: Session = Depends(get_db), _=Depends(permiso(CLAVE))):
+    return obtener_o_404(db, Ruta, id, NOMBRE)
+
 
 @router.post("/", response_model=RutaResponse)
 def crear_ruta(
-    ruta: RutaCreate,
-    db: Session = Depends(get_db)
+    cuerpo: RutaCreate,
+    db: Session = Depends(get_db),
+    _=Depends(permiso(CLAVE, "crear")),
 ):
-    nueva_ruta = Ruta(
-        nombre=ruta.nombre,
-        descripcion=ruta.descripcion,
-        hora_salida=ruta.hora_salida,
-        hora_llegada=ruta.hora_llegada,
-        conductor_id=ruta.conductor_id,
-        vehiculo_id=ruta.vehiculo_id,
-        estado=ruta.estado
-    )
-
-    db.add(nueva_ruta)
+    nueva = Ruta(**datos(cuerpo))
+    db.add(nueva)
     db.commit()
-    db.refresh(nueva_ruta)
+    db.refresh(nueva)
+    return nueva
 
-    return nueva_ruta
 
-
-# =========================
-# ACTUALIZAR RUTA
-# =========================
-
-@router.put("/{ruta_id}", response_model=RutaResponse)
+@router.put("/{id}", response_model=RutaResponse)
 def actualizar_ruta(
-    ruta_id: int,
-    ruta: RutaCreate,
-    db: Session = Depends(get_db)
+    id: int, cuerpo: RutaCreate, db: Session = Depends(get_db),
+    _=Depends(permiso(CLAVE, "editar")),
 ):
-    ruta_db = db.query(Ruta).filter(
-        Ruta.id == ruta_id
-    ).first()
-
-    if not ruta_db:
-        raise HTTPException(
-            status_code=404,
-            detail="Ruta no encontrada"
-        )
-
-    ruta_db.nombre = ruta.nombre
-    ruta_db.descripcion = ruta.descripcion
-    ruta_db.hora_salida = ruta.hora_salida
-    ruta_db.hora_llegada = ruta.hora_llegada
-    ruta_db.conductor_id = ruta.conductor_id
-    ruta_db.vehiculo_id = ruta.vehiculo_id
-    ruta_db.estado = ruta.estado
-
+    ruta = obtener_o_404(db, Ruta, id, NOMBRE)
+    aplicar(ruta, cuerpo.model_dump())
     db.commit()
-    db.refresh(ruta_db)
+    db.refresh(ruta)
+    return ruta
 
-    return ruta_db
 
-
-# =========================
-# ELIMINAR RUTA
-# =========================
-
-@router.delete("/{ruta_id}")
+@router.delete("/{id}")
 def eliminar_ruta(
-    ruta_id: int,
-    db: Session = Depends(get_db)
+    id: int, db: Session = Depends(get_db), _=Depends(permiso(CLAVE, "eliminar"))
 ):
-    ruta = db.query(Ruta).filter(
-        Ruta.id == ruta_id
-    ).first()
-
-    if not ruta:
-        raise HTTPException(
-            status_code=404,
-            detail="Ruta no encontrada"
-        )
-
-    db.delete(ruta)
-    db.commit()
-
-    return {
-        "mensaje": "Ruta eliminada correctamente"
-    }
+    return baja_logica(db, obtener_o_404(db, Ruta, id, NOMBRE), NOMBRE)

@@ -1,56 +1,141 @@
-from pydantic import BaseModel
-from typing import Optional
-from datetime import time, datetime
+from datetime import time, date, datetime
+from typing import Optional, Literal
+
+from pydantic import BaseModel, ConfigDict
+
+Estado = Literal["Activo", "Inactivo"]
 
 
-# =========================
-# ROLES
-# =========================
+class Opcional(BaseModel):
+    """Permite reactivar un registro enviando estado='Activo'."""
+    estado: Optional[Estado] = None
 
-class RolBase(BaseModel):
+
+class Salida(BaseModel):
+    """Campos comunes que devuelve cada tabla."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    creado: datetime
+    actualizado: datetime
+    estado: str
+
+
+# ---------------- AUTENTICACIÓN ----------------
+
+class LoginRequest(BaseModel):
+    correo: str
+    password: str
+    rol_id: int
+
+
+class ModuloMenu(BaseModel):
+    clave: str
+    nombre: str
+    icono: Optional[str] = None
+    orden: int
+    puede_crear: bool
+    puede_editar: bool
+    puede_eliminar: bool
+
+
+class UsuarioSesion(BaseModel):
+    id: int
+    nombre_completo: str
+    correo: str
+    rol: str
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    usuario: UsuarioSesion
+    modulos: list[ModuloMenu]
+
+
+# ---------------- ROLES ----------------
+
+class RolCreate(Opcional):
     nombre: str
     descripcion: Optional[str] = None
 
 
-class RolCreate(RolBase):
-    pass
+class RolResponse(Salida):
+    nombre: str
+    descripcion: Optional[str] = None
 
 
-class RolResponse(RolBase):
-    id: int
+# ---------------- MÓDULOS ----------------
 
-    class Config:
-        from_attributes = True
+class ModuloCreate(Opcional):
+    nombre: str
+    clave: str
+    icono: Optional[str] = None
+    orden: int = 0
 
 
-# =========================
-# USUARIOS
-# =========================
+class ModuloResponse(Salida):
+    nombre: str
+    clave: str
+    icono: Optional[str] = None
+    orden: int
 
-class UsuarioBase(BaseModel):
+
+# ---------------- ROLES_MODULOS ----------------
+
+class RolModuloCreate(Opcional):
+    rol_id: int
+    modulo_id: int
+    etiqueta: Optional[str] = None
+    puede_crear: bool = False
+    puede_editar: bool = False
+    puede_eliminar: bool = False
+
+
+class RolModuloResponse(Salida):
+    rol_id: int
+    modulo_id: int
+    rol_nombre: Optional[str] = None
+    modulo_nombre: Optional[str] = None
+    etiqueta: Optional[str] = None
+    puede_crear: bool
+    puede_editar: bool
+    puede_eliminar: bool
+
+
+# ---------------- USUARIOS ----------------
+
+class UsuarioCreate(Opcional):
     nombre: str
     apellido: str
     correo: str
     telefono: Optional[str] = None
     rol_id: int
+    password: str
 
 
-class UsuarioCreate(UsuarioBase):
-    pass
+class UsuarioUpdate(Opcional):
+    nombre: str
+    apellido: str
+    correo: str
+    telefono: Optional[str] = None
+    rol_id: int
+    password: Optional[str] = None  # vacío = no cambiar
 
 
-class UsuarioResponse(UsuarioBase):
-    id: int
+class UsuarioResponse(Salida):
+    nombre: str
+    apellido: str
+    nombre_completo: str
+    correo: str
+    telefono: Optional[str] = None
+    rol_id: int
+    rol_nombre: Optional[str] = None
 
-    class Config:
-        from_attributes = True
 
+# ---------------- ACUDIENTES ----------------
 
-# =========================
-# ACUDIENTES
-# =========================
-
-class AcudienteBase(BaseModel):
+class AcudienteCreate(Opcional):
     nombre: str
     apellido: str
     documento: str
@@ -59,118 +144,107 @@ class AcudienteBase(BaseModel):
     usuario_id: int
 
 
-class AcudienteCreate(AcudienteBase):
-    pass
+class AcudienteResponse(Salida):
+    nombre: str
+    apellido: str
+    nombre_completo: str
+    documento: str
+    telefono: str
+    correo: Optional[str] = None
+    usuario_id: int
+    usuario_nombre: Optional[str] = None
 
 
-class AcudienteResponse(AcudienteBase):
-    id: int
+# ---------------- ESTUDIANTES ----------------
 
-    class Config:
-        from_attributes = True
-
-
-# =========================
-# ESTUDIANTES
-# =========================
-
-class EstudianteBase(BaseModel):
+class EstudianteCreate(Opcional):
     nombre: str
     apellido: str
     documento: str
     grado: Optional[str] = None
     direccion: Optional[str] = None
+    acudiente_id: Optional[int] = None   # el acudiente lo deja vacío
+    usuario_id: Optional[int] = None
+
+
+class EstudianteResponse(Salida):
+    nombre: str
+    apellido: str
+    nombre_completo: str
+    documento: str
+    grado: Optional[str] = None
+    direccion: Optional[str] = None
     acudiente_id: int
+    acudiente_nombre: Optional[str] = None
+    usuario_id: Optional[int] = None
+    usuario_nombre: Optional[str] = None
 
 
-class EstudianteCreate(EstudianteBase):
-    pass
+# ---------------- CONDUCTORES ----------------
 
-
-class EstudianteResponse(EstudianteBase):
-    id: int
-
-    class Config:
-        from_attributes = True
-
-
-# =========================
-# CONDUCTORES
-# =========================
-
-class ConductorBase(BaseModel):
+class ConductorCreate(Opcional):
     nombre: str
     apellido: str
     documento: str
     licencia: str
     telefono: Optional[str] = None
-    activo: Optional[bool] = True
+    usuario_id: Optional[int] = None
 
 
-class ConductorCreate(ConductorBase):
-    pass
+class ConductorResponse(Salida):
+    nombre: str
+    apellido: str
+    nombre_completo: str
+    documento: str
+    licencia: str
+    telefono: Optional[str] = None
+    usuario_id: Optional[int] = None
+    usuario_nombre: Optional[str] = None
 
 
-class ConductorResponse(ConductorBase):
-    id: int
+# ---------------- VEHÍCULOS ----------------
 
-    class Config:
-        from_attributes = True
-
-
-# =========================
-# VEHICULOS
-# =========================
-
-class VehiculoBase(BaseModel):
+class VehiculoCreate(Opcional):
     placa: str
     marca: Optional[str] = None
     modelo: Optional[str] = None
     capacidad: int
-    estado: Optional[str] = "Disponible"
+    disponibilidad: str = "Disponible"
 
 
-class VehiculoCreate(VehiculoBase):
-    pass
+class VehiculoResponse(Salida):
+    placa: str
+    marca: Optional[str] = None
+    modelo: Optional[str] = None
+    capacidad: int
+    disponibilidad: str
 
 
-class VehiculoResponse(VehiculoBase):
-    id: int
+# ---------------- RUTAS ----------------
 
-    class Config:
-        from_attributes = True
-
-
-# =========================
-# RUTAS
-# =========================
-
-class RutaBase(BaseModel):
+class RutaCreate(Opcional):
     nombre: str
     descripcion: Optional[str] = None
     hora_salida: time
     hora_llegada: Optional[time] = None
     conductor_id: int
     vehiculo_id: int
-    estado: Optional[str] = "Activa"
 
 
-class RutaCreate(RutaBase):
-    pass
+class RutaResponse(Salida):
+    nombre: str
+    descripcion: Optional[str] = None
+    hora_salida: time
+    hora_llegada: Optional[time] = None
+    conductor_id: int
+    vehiculo_id: int
+    conductor_nombre: Optional[str] = None
+    vehiculo_placa: Optional[str] = None
 
 
-class RutaResponse(RutaBase):
-    id: int
+# ---------------- PARADEROS ----------------
 
-    class Config:
-        from_attributes = True
-
-
-# =========================
-# PARADEROS
-# =========================
-
-class ParaderoBase(BaseModel):
+class ParaderoCreate(Opcional):
     nombre: str
     direccion: str
     referencia: Optional[str] = None
@@ -178,55 +252,90 @@ class ParaderoBase(BaseModel):
     longitud: Optional[float] = None
 
 
-class ParaderoCreate(ParaderoBase):
-    pass
+class ParaderoResponse(Salida):
+    nombre: str
+    direccion: str
+    referencia: Optional[str] = None
+    latitud: Optional[float] = None
+    longitud: Optional[float] = None
 
 
-class ParaderoResponse(ParaderoBase):
-    id: int
+# ---------------- ESTUDIANTE - RUTA ----------------
 
-    class Config:
-        from_attributes = True
-
-
-# =========================
-# ESTUDIANTE - RUTA
-# =========================
-
-class EstudianteRutaBase(BaseModel):
+class EstudianteRutaCreate(Opcional):
     estudiante_id: int
     ruta_id: int
     paradero_id: int
 
 
-class EstudianteRutaCreate(EstudianteRutaBase):
-    pass
+class EstudianteRutaResponse(Salida):
+    estudiante_id: int
+    ruta_id: int
+    paradero_id: int
+    estudiante_nombre: Optional[str] = None
+    ruta_nombre: Optional[str] = None
+    paradero_nombre: Optional[str] = None
+    hora_salida: Optional[time] = None
 
 
-class EstudianteRutaResponse(EstudianteRutaBase):
-    id: int
+# ---------------- REGISTROS DE ABORDAJE ----------------
 
-    class Config:
-        from_attributes = True
+class RegistroAbordajeCreate(Opcional):
+    estudiante_id: int
+    ruta_id: int
+    tipo: Literal["Subida", "Bajada"]
 
 
-# =========================
-# REGISTROS DE ABORDAJE
-# =========================
-
-class RegistroAbordajeBase(BaseModel):
+class RegistroAbordajeResponse(Salida):
     estudiante_id: int
     ruta_id: int
     tipo: str
+    fecha_hora: datetime
+    estudiante_nombre: Optional[str] = None
+    ruta_nombre: Optional[str] = None
 
 
-class RegistroAbordajeCreate(RegistroAbordajeBase):
-    pass
+# ---------------- AUSENCIAS ----------------
+
+class AusenciaCreate(Opcional):
+    estudiante_id: Optional[int] = None   # el estudiante lo deja vacío
+    fecha: date
+    motivo: str
+    atencion: Optional[Literal["Pendiente", "Vista por conductor"]] = None
 
 
-class RegistroAbordajeResponse(RegistroAbordajeBase):
-    id: int
-    fecha_hora: Optional[datetime] = None
+class AusenciaResponse(Salida):
+    estudiante_id: int
+    ruta_id: Optional[int] = None
+    fecha: date
+    motivo: str
+    atencion: str
+    estudiante_nombre: Optional[str] = None
+    ruta_nombre: Optional[str] = None
+    reportado_por_nombre: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+
+# ---------------- FALLAS DE VEHÍCULO ----------------
+
+class FallaVehiculoCreate(Opcional):
+    ruta_id: int
+    tipo: Literal["Mecánica", "Eléctrica", "Llantas", "Frenos", "Accidente", "Otra"]
+    gravedad: Literal["Baja", "Media", "Alta"] = "Media"
+    descripcion: str
+    atencion: Optional[Literal["Reportada", "En revisión", "Resuelta"]] = None
+    observacion_admin: Optional[str] = None
+
+
+class FallaVehiculoResponse(Salida):
+    ruta_id: int
+    vehiculo_id: int
+    conductor_id: int
+    tipo: str
+    gravedad: str
+    descripcion: str
+    atencion: str
+    observacion_admin: Optional[str] = None
+    fecha_hora: datetime
+    ruta_nombre: Optional[str] = None
+    vehiculo_placa: Optional[str] = None
+    conductor_nombre: Optional[str] = None

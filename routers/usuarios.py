@@ -1,97 +1,65 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from auth import permiso
 from database import get_db
 from models import Usuario
-from schemas import UsuarioCreate, UsuarioResponse
+from schemas import UsuarioCreate, UsuarioUpdate, UsuarioResponse
+from utils import aplicar, baja_logica, datos, obtener_o_404, solo_activos
+from auth import hash_password
 
-
-router = APIRouter(
-    prefix="/usuarios",
-    tags=["Usuarios"]
-)
+router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
+CLAVE = "usuarios"
+NOMBRE = "Usuario"
 
 
 @router.get("/", response_model=list[UsuarioResponse])
-def obtener_usuarios(db: Session = Depends(get_db)):
-    return db.query(Usuario).all()
+def obtener_todos(
+    incluir_inactivos: bool = False,
+    db: Session = Depends(get_db),
+    _=Depends(permiso(CLAVE)),
+):
+    consulta = solo_activos(db.query(Usuario), Usuario, incluir_inactivos)
+    return consulta.order_by(Usuario.id).all()
 
 
-@router.get("/{usuario_id}", response_model=UsuarioResponse)
-def obtener_usuario(usuario_id: int, db: Session = Depends(get_db)):
-    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
-
-    if not usuario:
-        raise HTTPException(
-            status_code=404,
-            detail="Usuario no encontrado"
-        )
-
-    return usuario
+@router.get("/{id}", response_model=UsuarioResponse)
+def obtener_uno(id: int, db: Session = Depends(get_db), _=Depends(permiso(CLAVE))):
+    return obtener_o_404(db, Usuario, id, NOMBRE)
 
 
 @router.post("/", response_model=UsuarioResponse)
-def crear_usuario(
-    usuario: UsuarioCreate,
-    db: Session = Depends(get_db)
+def crear(
+    cuerpo: UsuarioCreate,
+    db: Session = Depends(get_db),
+    _=Depends(permiso(CLAVE, "crear")),
 ):
-    nuevo_usuario = Usuario(
-        nombre=usuario.nombre,
-        apellido=usuario.apellido,
-        correo=usuario.correo,
-        telefono=usuario.telefono,
-        rol_id=usuario.rol_id
-    )
-
-    db.add(nuevo_usuario)
+    valores = datos(cuerpo, excluir=("password",))
+    nuevo = Usuario(**valores, password_hash=hash_password(cuerpo.password))
+    db.add(nuevo)
     db.commit()
-    db.refresh(nuevo_usuario)
+    db.refresh(nuevo)
+    return nuevo
 
-    return nuevo_usuario
 
-
-@router.put("/{usuario_id}", response_model=UsuarioResponse)
-def actualizar_usuario(
-    usuario_id: int,
-    usuario: UsuarioCreate,
-    db: Session = Depends(get_db)
+@router.put("/{id}", response_model=UsuarioResponse)
+def actualizar(
+    id: int,
+    cuerpo: UsuarioUpdate,
+    db: Session = Depends(get_db),
+    _=Depends(permiso(CLAVE, "editar")),
 ):
-    usuario_db = db.query(Usuario).filter(Usuario.id == usuario_id).first()
-
-    if not usuario_db:
-        raise HTTPException(
-            status_code=404,
-            detail="Usuario no encontrado"
-        )
-
-    usuario_db.nombre = usuario.nombre
-    usuario_db.apellido = usuario.apellido
-    usuario_db.correo = usuario.correo
-    usuario_db.telefono = usuario.telefono
-    usuario_db.rol_id = usuario.rol_id
-
+    obj = obtener_o_404(db, Usuario, id, NOMBRE)
+    valores = cuerpo.model_dump(exclude={"password"})
+    aplicar(obj, valores)
+    if cuerpo.password:
+        obj.password_hash = hash_password(cuerpo.password)
     db.commit()
-    db.refresh(usuario_db)
+    db.refresh(obj)
+    return obj
 
-    return usuario_db
 
-
-@router.delete("/{usuario_id}")
-def eliminar_usuario(
-    usuario_id: int,
-    db: Session = Depends(get_db)
-):
-    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
-
-    if not usuario:
-        raise HTTPException(
-            status_code=404,
-            detail="Usuario no encontrado"
-        )
-
-    db.delete(usuario)
-    db.commit()
-
-    return {
-        "mensaje": "Usuario eliminado correctamente"
-    }
+@router.delete("/{id}")
+def eliminar(id: int, db: Session = Depends(get_db), _=Depends(permiso(CLAVE, "eliminar"))):
+    obj = obtener_o_404(db, Usuario, id, NOMBRE)
+    return baja_logica(db, obj, NOMBRE)

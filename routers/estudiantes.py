@@ -1,139 +1,93 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from auth import permiso
 from database import get_db
 from models import Estudiante
 from schemas import EstudianteCreate, EstudianteResponse
+from scope import acudiente_de, consulta_estudiantes, es_admin
+from utils import aplicar, baja_logica, datos, solo_activos
+
+router = APIRouter(prefix="/estudiantes", tags=["Estudiantes"])
+CLAVE = "estudiantes"
+NOMBRE = "Estudiante"
+
+# Qué campos puede modificar cada rol al editar.
+CAMPOS_EDITABLES = {
+    "Administrador": None,  # todos
+    "Acudiente": {"nombre", "apellido", "documento", "grado", "direccion"},
+    "Estudiante": {"grado", "direccion"},
+}
 
 
-router = APIRouter(
-    prefix="/estudiantes",
-    tags=["Estudiantes"]
-)
-
-
-# =========================================================
-# GET - Obtener todos los estudiantes
-# =========================================================
-
-@router.get("/", response_model=list[EstudianteResponse])
-def obtener_estudiantes(db: Session = Depends(get_db)):
-    return db.query(Estudiante).all()
-
-
-# =========================================================
-# GET - Obtener estudiante por ID
-# =========================================================
-
-@router.get("/{estudiante_id}", response_model=EstudianteResponse)
-def obtener_estudiante(
-    estudiante_id: int,
-    db: Session = Depends(get_db)
-):
-    estudiante = db.query(Estudiante).filter(
-        Estudiante.id == estudiante_id
-    ).first()
-
+def _visible(db, usuario, id):
+    estudiante = consulta_estudiantes(db, usuario).filter(Estudiante.id == id).first()
     if not estudiante:
-        raise HTTPException(
-            status_code=404,
-            detail="Estudiante no encontrado"
-        )
-
+        raise HTTPException(404, "Estudiante no encontrado")
     return estudiante
 
 
-# =========================================================
-# POST - Crear estudiante
-# =========================================================
+@router.get("/", response_model=list[EstudianteResponse])
+def obtener_estudiantes(
+    incluir_inactivos: bool = False,
+    db: Session = Depends(get_db),
+    usuario=Depends(permiso(CLAVE)),
+):
+    q = solo_activos(consulta_estudiantes(db, usuario), Estudiante, incluir_inactivos)
+    return q.order_by(Estudiante.id).all()
+
+
+@router.get("/{id}", response_model=EstudianteResponse)
+def obtener_estudiante(
+    id: int, db: Session = Depends(get_db), usuario=Depends(permiso(CLAVE))
+):
+    return _visible(db, usuario, id)
+
 
 @router.post("/", response_model=EstudianteResponse)
 def crear_estudiante(
-    estudiante: EstudianteCreate,
-    db: Session = Depends(get_db)
+    cuerpo: EstudianteCreate,
+    db: Session = Depends(get_db),
+    usuario=Depends(permiso(CLAVE, "crear")),
 ):
-    # Verificar documento duplicado
-    existente = db.query(Estudiante).filter(
-        Estudiante.documento == estudiante.documento
-    ).first()
+    valores = datos(cuerpo)
 
-    if existente:
-        raise HTTPException(
-            status_code=400,
-            detail="Ya existe un estudiante con ese documento"
-        )
+    if es_admin(usuario):
+        if not valores.get("acudiente_id"):
+            raise HTTPException(422, "Debes seleccionar el acudiente")
+    else:
+        # Un acudiente solo registra estudiantes a su propio cargo.
+        acudiente = acudiente_de(db, usuario)
+        if not acudiente:
+            raise HTTPException(403, "Tu usuario no tiene un acudiente asociado")
+        valores["acudiente_id"] = acudiente.id
+        valores["usuario_id"] = None
 
-    nuevo_estudiante = Estudiante(
-        nombre=estudiante.nombre,
-        apellido=estudiante.apellido,
-        documento=estudiante.documento,
-        grado=estudiante.grado,
-        direccion=estudiante.direccion,
-        acudiente_id=estudiante.acudiente_id
-    )
-
-    db.add(nuevo_estudiante)
+    nuevo = Estudiante(**valores)
+    db.add(nuevo)
     db.commit()
-    db.refresh(nuevo_estudiante)
+    db.refresh(nuevo)
+    return nuevo
 
-    return nuevo_estudiante
 
-
-# =========================================================
-# PUT - Actualizar estudiante
-# =========================================================
-
-@router.put("/{estudiante_id}", response_model=EstudianteResponse)
+@router.put("/{id}", response_model=EstudianteResponse)
 def actualizar_estudiante(
-    estudiante_id: int,
-    estudiante: EstudianteCreate,
-    db: Session = Depends(get_db)
+    id: int,
+    cuerpo: EstudianteCreate,
+    db: Session = Depends(get_db),
+    usuario=Depends(permiso(CLAVE, "editar")),
 ):
-    estudiante_db = db.query(Estudiante).filter(
-        Estudiante.id == estudiante_id
-    ).first()
-
-    if not estudiante_db:
-        raise HTTPException(
-            status_code=404,
-            detail="Estudiante no encontrado"
-        )
-
-    estudiante_db.nombre = estudiante.nombre
-    estudiante_db.apellido = estudiante.apellido
-    estudiante_db.documento = estudiante.documento
-    estudiante_db.grado = estudiante.grado
-    estudiante_db.direccion = estudiante.direccion
-    estudiante_db.acudiente_id = estudiante.acudiente_id
-
+    estudiante = _visible(db, usuario, id)
+    permitidos = CAMPOS_EDITABLES.get(usuario.rol.nombre, set())
+    aplicar(estudiante, cuerpo.model_dump(exclude_unset=True), permitidos)
     db.commit()
-    db.refresh(estudiante_db)
+    db.refresh(estudiante)
+    return estudiante
 
-    return estudiante_db
 
-
-# =========================================================
-# DELETE - Eliminar estudiante
-# =========================================================
-
-@router.delete("/{estudiante_id}")
+@router.delete("/{id}")
 def eliminar_estudiante(
-    estudiante_id: int,
-    db: Session = Depends(get_db)
+    id: int, db: Session = Depends(get_db),
+    usuario=Depends(permiso(CLAVE, "eliminar")),
 ):
-    estudiante = db.query(Estudiante).filter(
-        Estudiante.id == estudiante_id
-    ).first()
-
-    if not estudiante:
-        raise HTTPException(
-            status_code=404,
-            detail="Estudiante no encontrado"
-        )
-
-    db.delete(estudiante)
-    db.commit()
-
-    return {
-        "mensaje": "Estudiante eliminado correctamente"
-    }
+    return baja_logica(db, _visible(db, usuario, id), NOMBRE)

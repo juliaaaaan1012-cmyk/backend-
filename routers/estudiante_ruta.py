@@ -1,102 +1,62 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from auth import permiso
 from database import get_db
 from models import EstudianteRuta
 from schemas import EstudianteRutaCreate, EstudianteRutaResponse
+from scope import ids_estudiantes
+from utils import aplicar, baja_logica, datos, obtener_o_404, solo_activos
 
-
-router = APIRouter(
-    prefix="/estudiante-ruta",
-    tags=["Estudiante - Ruta"]
-)
+router = APIRouter(prefix="/estudiante-ruta", tags=["Estudiante - Ruta"])
+CLAVE = "estudiante-ruta"
+NOMBRE = "Asignación"
 
 
 @router.get("/", response_model=list[EstudianteRutaResponse])
-def obtener_asignaciones(db: Session = Depends(get_db)):
-    return db.query(EstudianteRuta).all()
-
-
-@router.get("/{asignacion_id}", response_model=EstudianteRutaResponse)
-def obtener_asignacion(
-    asignacion_id: int,
-    db: Session = Depends(get_db)
+def obtener_asignaciones(
+    incluir_inactivos: bool = False,
+    db: Session = Depends(get_db),
+    usuario=Depends(permiso(CLAVE)),
 ):
-    asignacion = db.query(EstudianteRuta).filter(
-        EstudianteRuta.id == asignacion_id
-    ).first()
+    q = solo_activos(db.query(EstudianteRuta), EstudianteRuta, incluir_inactivos)
+    ids = ids_estudiantes(db, usuario)
+    if ids is not None:
+        q = q.filter(EstudianteRuta.estudiante_id.in_(ids or [-1]))
+    return q.order_by(EstudianteRuta.id).all()
 
-    if not asignacion:
-        raise HTTPException(
-            status_code=404,
-            detail="Asignación no encontrada"
-        )
 
-    return asignacion
+@router.get("/{id}", response_model=EstudianteRutaResponse)
+def obtener_asignacion(id: int, db: Session = Depends(get_db), _=Depends(permiso(CLAVE))):
+    return obtener_o_404(db, EstudianteRuta, id, NOMBRE)
 
 
 @router.post("/", response_model=EstudianteRutaResponse)
 def crear_asignacion(
-    asignacion: EstudianteRutaCreate,
-    db: Session = Depends(get_db)
+    cuerpo: EstudianteRutaCreate, db: Session = Depends(get_db),
+    _=Depends(permiso(CLAVE, "crear")),
 ):
-    nueva_asignacion = EstudianteRuta(
-        estudiante_id=asignacion.estudiante_id,
-        ruta_id=asignacion.ruta_id,
-        paradero_id=asignacion.paradero_id
-    )
-
-    db.add(nueva_asignacion)
+    nueva = EstudianteRuta(**datos(cuerpo))
+    db.add(nueva)
     db.commit()
-    db.refresh(nueva_asignacion)
+    db.refresh(nueva)
+    return nueva
 
-    return nueva_asignacion
 
-
-@router.put("/{asignacion_id}", response_model=EstudianteRutaResponse)
+@router.put("/{id}", response_model=EstudianteRutaResponse)
 def actualizar_asignacion(
-    asignacion_id: int,
-    asignacion: EstudianteRutaCreate,
-    db: Session = Depends(get_db)
+    id: int, cuerpo: EstudianteRutaCreate, db: Session = Depends(get_db),
+    _=Depends(permiso(CLAVE, "editar")),
 ):
-    asignacion_db = db.query(EstudianteRuta).filter(
-        EstudianteRuta.id == asignacion_id
-    ).first()
-
-    if not asignacion_db:
-        raise HTTPException(
-            status_code=404,
-            detail="Asignación no encontrada"
-        )
-
-    asignacion_db.estudiante_id = asignacion.estudiante_id
-    asignacion_db.ruta_id = asignacion.ruta_id
-    asignacion_db.paradero_id = asignacion.paradero_id
-
+    obj = obtener_o_404(db, EstudianteRuta, id, NOMBRE)
+    aplicar(obj, cuerpo.model_dump())
     db.commit()
-    db.refresh(asignacion_db)
+    db.refresh(obj)
+    return obj
 
-    return asignacion_db
 
-
-@router.delete("/{asignacion_id}")
+@router.delete("/{id}")
 def eliminar_asignacion(
-    asignacion_id: int,
-    db: Session = Depends(get_db)
+    id: int, db: Session = Depends(get_db), _=Depends(permiso(CLAVE, "eliminar"))
 ):
-    asignacion = db.query(EstudianteRuta).filter(
-        EstudianteRuta.id == asignacion_id
-    ).first()
-
-    if not asignacion:
-        raise HTTPException(
-            status_code=404,
-            detail="Asignación no encontrada"
-        )
-
-    db.delete(asignacion)
-    db.commit()
-
-    return {
-        "mensaje": "Asignación eliminada correctamente"
-    }
+    return baja_logica(db, obtener_o_404(db, EstudianteRuta, id, NOMBRE), NOMBRE)
